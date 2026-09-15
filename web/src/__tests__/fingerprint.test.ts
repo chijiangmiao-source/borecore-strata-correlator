@@ -20,4 +20,18 @@ describe("fingerprint", () => {
     };
     expect(resultFingerprint(modified)).not.toBe(resultFingerprint(EXAMPLE_RESPONSE));
   });
+
+  it("指纹仅覆盖原结果：替代裕量分析不参与", () => {
+    const withoutMargins = { steps: EXAMPLE_RESPONSE.steps, totals: EXAMPLE_RESPONSE.totals };
+    expect(resultFingerprint(withoutMargins)).toBe(resultFingerprint(EXAMPLE_RESPONSE));
+
+    const modifiedMargins = {
+      ...EXAMPLE_RESPONSE,
+      margins: {
+        ...EXAMPLE_RESPONSE.margins!,
+        most_fragile: EXAMPLE_RESPONSE.margins!.most_fragile + 1,
+      },
+    };
+    expect(resultFingerprint(modifiedMargins)).toBe(resultFingerprint(EXAMPLE_RESPONSE));
+  });
 });

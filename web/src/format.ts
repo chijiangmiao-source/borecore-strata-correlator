@@ -1,6 +1,6 @@
 /** 把接口返回的步骤格式化为编录员可复算的中文证据文本。 */
 
-import type { Step, StepLayer, StepType } from "./types";
+import type { Step, StepLayer, StepMargin, StepType } from "./types";
 
 export const STEP_LABELS: Record<StepType, string> = {
   "1:1": "单层对单层",
@@ -40,4 +40,22 @@ export function costLines(step: Step): string[] {
   }
   lines.push(`步代价 = ${step.cost}`);
   return lines;
+}
+
+function signed(value: number): string {
+  if (value > 0) return `+${value}`;
+  // 与既有文本一致，负数使用 U+2212 减号
+  return `${value}`.replace("-", "−");
+}
+
+/** 替代裕量简写：代价/缺失/分组 三项差值，例如 “+15/−1/+1”。 */
+export function formatMargin(margin: StepMargin): string {
+  return `${signed(margin.cost)}/${signed(margin.missing)}/${signed(margin.groups)}`;
+}
+
+/** 替代裕量完整说明，例如 “替代裕量：代价 +15 · 缺失 −1 · 分组 +1”。 */
+export function formatMarginLong(margin: StepMargin): string {
+  return `替代裕量：代价 ${signed(margin.cost)} · 缺失 ${signed(margin.missing)} · 分组 ${signed(
+    margin.groups,
+  )}`;
 }

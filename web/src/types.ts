@@ -46,9 +46,28 @@ export interface Totals {
   step_count: number;
 }
 
+/** 一步的替代裕量：合法替代与原结果的 (总代价, 缺失步数, 分组步数) 之差。 */
+export interface StepMargin {
+  index: number;
+  cost: number;
+  missing: number;
+  groups: number;
+}
+
+/** 逐步替代裕量分析：每步裕量、最脆弱步，以及仅为该步重建的完整替代证据。 */
+export interface MarginAnalysis {
+  steps: StepMargin[];
+  most_fragile: number;
+  alternative: {
+    steps: Step[];
+    totals: Totals;
+  };
+}
+
 export interface CorrelateResponse {
   steps: Step[];
   totals: Totals;
+  margins?: MarginAnalysis;
 }
 
 export interface ApiErrorItem {

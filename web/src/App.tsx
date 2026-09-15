@@ -6,6 +6,7 @@ import { Diagram } from "./components/Diagram";
 import { StepList } from "./components/StepList";
 import { EXAMPLE_LEFT, EXAMPLE_RIGHT, INITIAL_LEFT, INITIAL_RIGHT } from "./example";
 import { resultFingerprint } from "./fingerprint";
+import { formatMarginLong } from "./format";
 import type { ApiErrorItem, CorrelateResponse, LayerDraft } from "./types";
 import { toPayload, validateColumns } from "./validation";
 
@@ -16,6 +17,8 @@ export default function App() {
   const [result, setResult] = useState<CorrelateResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [selected, setSelected] = useState<number | null>(null);
+  // 比较态：是否正在查看最脆弱步的替代图
+  const [showAlternative, setShowAlternative] = useState(false);
   // 请求序号：输入一旦变化即递增，使在途响应与既有证据一并失效
   const requestSeq = useRef(0);
 
@@ -24,6 +27,7 @@ export default function App() {
     setResult(null);
     setErrors([]);
     setSelected(null);
+    setShowAlternative(false);
   }
 
   function updateLeft(layers: LayerDraft[]) {
@@ -47,21 +51,25 @@ export default function App() {
     if (clientErrors.length > 0) {
       setErrors(clientErrors);
       setResult(null);
+      setShowAlternative(false);
       return;
     }
     const seq = ++requestSeq.current;
     setLoading(true);
     setErrors([]);
+    setShowAlternative(false);
     try {
       const response = await correlate(toPayload(left), toPayload(right));
       // 若在途期间输入被修改，响应已对应旧输入，直接丢弃
       if (seq === requestSeq.current) {
         setResult(response);
         setSelected(null);
+        setShowAlternative(false);
       }
     } catch (error) {
       if (seq === requestSeq.current) {
         setResult(null);
+        setShowAlternative(false);
         if (error instanceof ApiValidationError) {
           setErrors(error.errors);
         } else {
@@ -114,12 +122,29 @@ export default function App() {
             <span>缺失步 {result.totals.missing_steps}</span>
             <span>分组步 {result.totals.group_steps}</span>
             <span>共 {result.totals.step_count} 步</span>
+            {result.margins && (
+              <span data-testid="fragile-summary">
+                最脆弱步 第{result.margins.most_fragile}步 ·{" "}
+                {formatMarginLong(
+                  result.margins.steps[result.margins.most_fragile - 1],
+                )}
+              </span>
+            )}
             <span>
               结果指纹 <code data-testid="fingerprint">{resultFingerprint(result)}</code>
             </span>
           </div>
           <div className="result-grid">
-            <Diagram steps={result.steps} selected={selected} onSelect={setSelected} />
+            <Diagram
+              steps={result.steps}
+              selected={selected}
+              onSelect={setSelected}
+              margins={result.margins?.steps}
+              mostFragile={result.margins?.most_fragile}
+              alternative={result.margins?.alternative}
+              showAlternative={showAlternative}
+              onToggleAlternative={() => setShowAlternative((value) => !value)}
+            />
             <StepList steps={result.steps} selected={selected} onSelect={setSelected} />
           </div>
         </section>

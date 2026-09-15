@@ -60,6 +60,20 @@ def test_repeated_submissions_over_http_are_identical():
     assert first.content == second.content
 
 
+def test_margins_over_http_match_documented_example():
+    response = httpx.post(f"{API_BASE}/api/correlate", json=EXAMPLE, timeout=10)
+    assert response.status_code == 200
+    margins = response.json()["margins"]
+    assert margins["most_fragile"] == 2
+    assert margins["steps"][1] == {"index": 2, "cost": 15, "missing": -1, "groups": 1}
+    assert margins["alternative"]["totals"] == {
+        "cost": 740, "missing_steps": 1, "group_steps": 3, "step_count": 6,
+    }
+    # 重复提交后裕量、最脆弱步与替代图完全一致
+    again = httpx.post(f"{API_BASE}/api/correlate", json=EXAMPLE, timeout=10)
+    assert again.json()["margins"] == margins
+
+
 def test_validation_error_over_http_locates_layer():
     payload = {
         "left": [{"code": "A", "thickness": 10}, {"code": "B", "thickness": 0}],

@@ -12,5 +12,7 @@ export function fingerprint(text: string): string {
 }
 
 export function resultFingerprint(result: CorrelateResponse): string {
-  return fingerprint(JSON.stringify(result));
+  // 指纹仅覆盖原结果（原路径与累计证据）：替代裕量分析不参与，
+  // 因此扩展响应后同一输入的指纹保持不变。
+  return fingerprint(JSON.stringify({ steps: result.steps, totals: result.totals }));
 }

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { costLines, STEP_LABELS, stepLayersText } from "../format";
+import { costLines, formatMargin, formatMarginLong, STEP_LABELS, stepLayersText } from "../format";
 import { EXAMPLE_RESPONSE } from "../test/fixtures";
 
 const steps = EXAMPLE_RESPONSE.steps;
@@ -65,5 +65,21 @@ describe("costLines", () => {
       "缺失基准 200 + 厚度×2（2×25=50）",
       "步代价 = 250",
     ]);
+  });
+});
+
+describe("formatMargin", () => {
+  it("三项差值以斜杠分隔，正数加正号，负数用 U+2212", () => {
+    expect(formatMargin({ index: 2, cost: 15, missing: -1, groups: 1 })).toBe("+15/−1/+1");
+    expect(formatMargin({ index: 1, cost: 0, missing: 0, groups: 0 })).toBe("0/0/0");
+    expect(formatMargin({ index: 5, cost: 100, missing: 0, groups: 0 })).toBe("+100/0/0");
+  });
+});
+
+describe("formatMarginLong", () => {
+  it("逐项标注代价、缺失与分组", () => {
+    expect(formatMarginLong({ index: 2, cost: 15, missing: -1, groups: 1 })).toBe(
+      "替代裕量：代价 +15 · 缺失 −1 · 分组 +1",
+    );
   });
 });

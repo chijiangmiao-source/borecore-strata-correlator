@@ -68,6 +68,70 @@ test("同成本分叉、首尾缺层与分组交错：刷新与重复提交得�
   expect(await page.getByTestId("step-list").innerText()).toBe(stepList);
 });
 
+test("连带图逐步展示替代裕量，点击最脆弱标记切换原图与替代图", async ({ page }) => {
+  await loadExampleAndSubmit(page);
+
+  // 逐步裕量与最脆弱步
+  await expect(page.getByTestId("margin-1")).toHaveText("+25/−1/+1");
+  await expect(page.getByTestId("margin-2")).toHaveText("+15/−1/+1");
+  await expect(page.getByTestId("margin-5")).toHaveText("+100/0/0");
+  await expect(page.getByTestId("fragile-summary")).toContainText("最脆弱步 第2步");
+  await expect(page.getByTestId("diagram-mode")).toHaveText("原图");
+
+  // 点击最脆弱标记 → 替代图（替代路径 6 步，总代价 740）
+  await page.getByTestId("fragile-marker").click();
+  await expect(page.getByTestId("diagram-mode")).toContainText(
+    "替代图：第 2 步的最近替代（总代价 740 · 缺失 1 · 分组 3）",
+  );
+  await expect(page.getByTestId("band-6")).toBeVisible();
+  await expect(page.getByTestId("margin-1")).not.toBeVisible();
+
+  // 返回原图
+  await page.getByTestId("toggle-alternative").click();
+  await expect(page.getByTestId("diagram-mode")).toHaveText("原图");
+  await expect(page.getByTestId("margin-1")).toHaveText("+25/−1/+1");
+  await expect(page.getByTestId("band-7")).toBeVisible();
+});
+
+test("替代裕量、最脆弱步与替代图在刷新与重复提交后完全一致", async ({ page }) => {
+  await loadExampleAndSubmit(page);
+  const margins = await page.getByTestId("diagram").innerText();
+  const summary = await page.getByTestId("fragile-summary").textContent();
+
+  await page.getByTestId("fragile-marker").click();
+  const alternative = await page.getByTestId("diagram").innerText();
+  await page.getByTestId("toggle-alternative").click();
+
+  // 重复提交：比较态被清除，裕量与替代图不变
+  await page.getByRole("button", { name: "开始对应" }).click();
+  await expect(page.getByTestId("diagram-mode")).toHaveText("原图");
+  expect(await page.getByTestId("diagram").innerText()).toBe(margins);
+  await page.getByTestId("fragile-marker").click();
+  expect(await page.getByTestId("diagram").innerText()).toBe(alternative);
+
+  // 刷新后重新提交：完全一致
+  await page.reload();
+  await page.getByRole("button", { name: "载入示例" }).click();
+  await page.getByRole("button", { name: "开始对应" }).click();
+  await expect(page.getByTestId("fragile-summary")).toHaveText(summary!);
+  expect(await page.getByTestId("diagram").innerText()).toBe(margins);
+  await page.getByTestId("fragile-marker").click();
+  expect(await page.getByTestId("diagram").innerText()).toBe(alternative);
+});
+
+test("输入修改清除比较态", async ({ page }) => {
+  await loadExampleAndSubmit(page);
+  await page.getByTestId("fragile-marker").click();
+  await expect(page.getByTestId("diagram-mode")).toContainText("替代图");
+
+  await page.getByTestId("layer-thickness-left-0").fill("55");
+  await expect(page.getByTestId("diagram")).not.toBeVisible();
+  await expect(page.getByTestId("toggle-alternative")).not.toBeVisible();
+
+  await page.getByRole("button", { name: "开始对应" }).click();
+  await expect(page.getByTestId("diagram-mode")).toHaveText("原图");
+});
+
 test("校验错误定位到层号", async ({ page }) => {
   await page.goto("/");
   await page.getByRole("button", { name: "载入示例" }).click();

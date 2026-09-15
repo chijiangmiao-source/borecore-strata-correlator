@@ -140,4 +140,113 @@ describe("App", () => {
     expect(screen.queryByTestId("diagram")).not.toBeInTheDocument();
     expect(screen.queryByTestId("totals")).not.toBeInTheDocument();
   });
+
+  it("连带图逐步展示替代裕量并标记最脆弱步", async () => {
+    render(<App />);
+    fireEvent.click(screen.getByRole("button", { name: "载入示例" }));
+    fireEvent.click(screen.getByRole("button", { name: "开始对应" }));
+    await waitFor(() => expect(screen.getByTestId("diagram")).toBeInTheDocument());
+
+    // 逐步裕量：与原结果的三项差值
+    expect(screen.getByTestId("margin-1")).toHaveTextContent("+25/−1/+1");
+    expect(screen.getByTestId("margin-2")).toHaveTextContent("+15/−1/+1");
+    expect(screen.getByTestId("margin-5")).toHaveTextContent("+100/0/0");
+    expect(screen.getByTestId("margin-7")).toHaveTextContent("+25/−1/+1");
+
+    // 最脆弱步汇总与标记
+    expect(screen.getByTestId("fragile-summary")).toHaveTextContent("最脆弱步 第2步");
+    expect(screen.getByTestId("fragile-summary")).toHaveTextContent(
+      "替代裕量：代价 +15 · 缺失 −1 · 分组 +1",
+    );
+    expect(screen.getByTestId("fragile-marker")).toBeInTheDocument();
+    expect(screen.getByTestId("diagram-mode")).toHaveTextContent("原图");
+  });
+
+  it("点击最脆弱标记切换原图与替代图", async () => {
+    render(<App />);
+    fireEvent.click(screen.getByRole("button", { name: "载入示例" }));
+    fireEvent.click(screen.getByRole("button", { name: "开始对应" }));
+    await waitFor(() => expect(screen.getByTestId("fragile-marker")).toBeInTheDocument());
+
+    // 切换到替代图：展示替代证据，原图裕量隐去
+    fireEvent.click(screen.getByTestId("fragile-marker"));
+    expect(screen.getByTestId("diagram-mode")).toHaveTextContent(
+      "替代图：第 2 步的最近替代（总代价 740 · 缺失 1 · 分组 3）",
+    );
+    expect(screen.queryByTestId("margin-1")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("fragile-marker")).not.toBeInTheDocument();
+    // 替代路径共 6 步，末步为 0:1
+    expect(screen.getByTestId("band-6")).toBeInTheDocument();
+    expect(screen.queryByTestId("band-7")).not.toBeInTheDocument();
+
+    // 返回原图：裕量与最脆弱标记恢复
+    fireEvent.click(screen.getByTestId("toggle-alternative"));
+    expect(screen.getByTestId("diagram-mode")).toHaveTextContent("原图");
+    expect(screen.getByTestId("margin-1")).toHaveTextContent("+25/−1/+1");
+    expect(screen.getByTestId("fragile-marker")).toBeInTheDocument();
+    expect(screen.getByTestId("band-7")).toBeInTheDocument();
+  });
+
+  it("输入修改清除比较态", async () => {
+    render(<App />);
+    fireEvent.click(screen.getByRole("button", { name: "载入示例" }));
+    fireEvent.click(screen.getByRole("button", { name: "开始对应" }));
+    await waitFor(() => expect(screen.getByTestId("fragile-marker")).toBeInTheDocument());
+    fireEvent.click(screen.getByTestId("fragile-marker"));
+    expect(screen.getByTestId("diagram-mode")).toHaveTextContent("替代图");
+
+    fireEvent.change(screen.getByTestId("layer-thickness-left-0"), {
+      target: { value: "55" },
+    });
+    expect(screen.queryByTestId("diagram")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("toggle-alternative")).not.toBeInTheDocument();
+
+    // 重新提交后回到原图，而不是停留在替代图
+    fireEvent.click(screen.getByRole("button", { name: "开始对应" }));
+    await waitFor(() => expect(screen.getByTestId("diagram")).toBeInTheDocument());
+    expect(screen.getByTestId("diagram-mode")).toHaveTextContent("原图");
+  });
+
+  it("新提交清除比较态", async () => {
+    render(<App />);
+    fireEvent.click(screen.getByRole("button", { name: "载入示例" }));
+    fireEvent.click(screen.getByRole("button", { name: "开始对应" }));
+    await waitFor(() => expect(screen.getByTestId("fragile-marker")).toBeInTheDocument());
+    fireEvent.click(screen.getByTestId("fragile-marker"));
+    expect(screen.getByTestId("diagram-mode")).toHaveTextContent("替代图");
+
+    fireEvent.click(screen.getByRole("button", { name: "开始对应" }));
+    await waitFor(() => expect(screen.getByTestId("diagram-mode")).toHaveTextContent("原图"));
+    expect(screen.getByTestId("fragile-marker")).toBeInTheDocument();
+  });
+
+  it("迟到响应不会复活比较态", async () => {
+    render(<App />);
+    fireEvent.click(screen.getByRole("button", { name: "载入示例" }));
+    fireEvent.click(screen.getByRole("button", { name: "开始对应" }));
+    await waitFor(() => expect(screen.getByTestId("fragile-marker")).toBeInTheDocument());
+    fireEvent.click(screen.getByTestId("fragile-marker"));
+    expect(screen.getByTestId("diagram-mode")).toHaveTextContent("替代图");
+
+    // 修改输入后再次提交，旧响应迟到返回也不得展示任何比较态
+    let resolveRequest: (value: typeof EXAMPLE_RESPONSE) => void = () => {};
+    mockedCorrelate.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveRequest = resolve;
+        }),
+    );
+    fireEvent.change(screen.getByTestId("layer-thickness-left-0"), {
+      target: { value: "55" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "开始对应" }));
+    fireEvent.change(screen.getByTestId("layer-thickness-left-0"), {
+      target: { value: "66" },
+    });
+    resolveRequest(EXAMPLE_RESPONSE);
+    await waitFor(() => expect(screen.getByRole("button", { name: "开始对应" })).toBeEnabled());
+    expect(screen.queryByTestId("diagram")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("toggle-alternative")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("fragile-marker")).not.toBeInTheDocument();
+  });
 });

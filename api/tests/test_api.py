@@ -62,6 +62,40 @@ def test_correlate_is_stateless_and_deterministic():
     assert first.content == second.content
 
 
+def test_correlate_returns_stepwise_substitution_margins():
+    response = client.post("/api/correlate", json=EXAMPLE)
+    assert response.status_code == 200
+    body = response.json()
+    margins = body["margins"]
+    assert margins["steps"] == [
+        {"index": 1, "cost": 25, "missing": -1, "groups": 1},
+        {"index": 2, "cost": 15, "missing": -1, "groups": 1},
+        {"index": 3, "cost": 15, "missing": -1, "groups": 1},
+        {"index": 4, "cost": 15, "missing": -1, "groups": 1},
+        {"index": 5, "cost": 100, "missing": 0, "groups": 0},
+        {"index": 6, "cost": 25, "missing": -1, "groups": 1},
+        {"index": 7, "cost": 25, "missing": -1, "groups": 1},
+    ]
+    assert margins["most_fragile"] == 2
+    alternative = margins["alternative"]
+    assert [step["type"] for step in alternative["steps"]] == [
+        "1:1", "2:1", "2:1", "1:2", "1:1", "0:1",
+    ]
+    assert alternative["totals"] == {
+        "cost": 740, "missing_steps": 1, "group_steps": 3, "step_count": 6,
+    }
+    # 替代证据同样逐步消费全部输入层
+    left_seen = [e["layer"] for s in alternative["steps"] for e in s["left"]]
+    right_seen = [e["layer"] for s in alternative["steps"] for e in s["right"]]
+    assert left_seen == list(range(1, 8))
+    assert right_seen == list(range(1, 8))
+    # 扩展字段不影响原结果：原路径与累计证据保持不变
+    assert body["totals"] == {"cost": 725, "missing_steps": 2, "group_steps": 2, "step_count": 7}
+    assert [step["type"] for step in body["steps"]] == [
+        "1:1", "1:0", "2:1", "1:1", "1:2", "1:1", "0:1",
+    ]
+
+
 def _messages(response) -> list[str]:
     assert response.status_code == 422
     return [item["message"] for item in response.json()["detail"]]

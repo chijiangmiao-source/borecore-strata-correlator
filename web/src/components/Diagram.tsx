@@ -1,4 +1,5 @@
-import type { Step, StepType } from "../types";
+import { formatMargin } from "../format";
+import type { Step, StepMargin, StepType, Totals } from "../types";
 
 const WIDTH = 660;
 const TOP = 28;
@@ -29,6 +30,12 @@ interface DiagramProps {
   steps: Step[];
   selected: number | null;
   onSelect: (index: number) => void;
+  /** 逐步替代裕量（仅原图展示）；缺省时按旧行为只画连带图。 */
+  margins?: StepMargin[];
+  mostFragile?: number;
+  alternative?: { steps: Step[]; totals: Totals };
+  showAlternative: boolean;
+  onToggleAlternative: () => void;
 }
 
 interface Segment {
@@ -36,10 +43,24 @@ interface Segment {
   y1: number;
 }
 
-/** 连带图：左、右两列层块与每一步的连接带，带颜色区分步骤类型，红边表示岩性罚分。 */
-export function Diagram({ steps, selected, onSelect }: DiagramProps) {
-  const leftColumn = steps.flatMap((step) => step.left);
-  const rightColumn = steps.flatMap((step) => step.right);
+/** 连带图：左、右两列层块与每一步的连接带，带颜色区分步骤类型，红边表示岩性罚分。
+ *  原图模式下逐步标注替代裕量，并以红色标记突出最脆弱步；点击最脆弱标记
+ *  切换到该步的完整替代图，再次点击工具条按钮返回原图。 */
+export function Diagram({
+  steps,
+  selected,
+  onSelect,
+  margins,
+  mostFragile,
+  alternative,
+  showAlternative,
+  onToggleAlternative,
+}: DiagramProps) {
+  const marginByIndex = new Map((margins ?? []).map((margin) => [margin.index, margin]));
+  const displaySteps = showAlternative && alternative ? alternative.steps : steps;
+
+  const leftColumn = displaySteps.flatMap((step) => step.left);
+  const rightColumn = displaySteps.flatMap((step) => step.right);
   const leftTotal = leftColumn.reduce((sum, layer) => sum + layer.thickness, 0);
   const rightTotal = rightColumn.reduce((sum, layer) => sum + layer.thickness, 0);
   const scale = TRACK / Math.max(leftTotal, rightTotal, 1);
@@ -66,8 +87,22 @@ export function Diagram({ steps, selected, onSelect }: DiagramProps) {
     return { y0: first.y0, y1: last.y1 };
   }
 
+  const hasAnalysis = margins !== undefined && mostFragile !== undefined && alternative;
+
   return (
     <figure className="diagram" data-testid="diagram">
+      {hasAnalysis && (
+        <figcaption className="diagram-toolbar">
+          <span data-testid="diagram-mode">
+            {showAlternative
+              ? `替代图：第 ${mostFragile} 步的最近替代（总代价 ${alternative.totals.cost} · 缺失 ${alternative.totals.missing_steps} · 分组 ${alternative.totals.group_steps}）`
+              : "原图"}
+          </span>
+          <button type="button" data-testid="toggle-alternative" onClick={onToggleAlternative}>
+            {showAlternative ? "返回原图" : `查看第 ${mostFragile} 步替代图`}
+          </button>
+        </figcaption>
+      )}
       <svg
         viewBox={`0 0 ${WIDTH} ${svgHeight}`}
         role="img"
@@ -81,43 +116,60 @@ export function Diagram({ steps, selected, onSelect }: DiagramProps) {
           右孔
         </text>
 
-        {steps.map((step) => {
+        {displaySteps.map((step) => {
           const leftSeg = segmentOf(step.left, leftOffsets);
           const rightSeg = segmentOf(step.right, rightOffsets);
           const color = TYPE_COLORS[step.type];
           const isSelected = selected === step.index;
           const penalized = (step.lithology_penalty ?? 0) > 0;
+          const margin = showAlternative ? undefined : marginByIndex.get(step.index);
+          const isFragile = !showAlternative && step.index === mostFragile;
 
+          let badge: { x: number; y: number } | null = null;
+          let band = null;
           if (leftSeg && rightSeg) {
-            const badgeX = GUTTER_X;
-            const badgeY = (leftSeg.y0 + leftSeg.y1 + rightSeg.y0 + rightSeg.y1) / 4;
-            return (
-              <g
-                key={step.index}
-                data-testid={`band-${step.index}`}
-                className="band"
-                onMouseEnter={() => onSelect(step.index)}
-                onClick={() => onSelect(step.index)}
-              >
-                <polygon
-                  points={`${LEFT_X + LEFT_W},${leftSeg.y0} ${RIGHT_X},${rightSeg.y0} ${RIGHT_X},${rightSeg.y1} ${LEFT_X + LEFT_W},${leftSeg.y1}`}
-                  fill={color}
-                  fillOpacity={isSelected ? 0.55 : 0.28}
-                  stroke={penalized ? "#c62828" : color}
-                  strokeWidth={isSelected || penalized ? 2 : 1}
+            badge = {
+              x: GUTTER_X,
+              y: (leftSeg.y0 + leftSeg.y1 + rightSeg.y0 + rightSeg.y1) / 4,
+            };
+            band = (
+              <polygon
+                points={`${LEFT_X + LEFT_W},${leftSeg.y0} ${RIGHT_X},${rightSeg.y0} ${RIGHT_X},${rightSeg.y1} ${LEFT_X + LEFT_W},${leftSeg.y1}`}
+                fill={color}
+                fillOpacity={isSelected ? 0.55 : 0.28}
+                stroke={penalized ? "#c62828" : color}
+                strokeWidth={isSelected || penalized ? 2 : 1}
+              />
+            );
+          } else {
+            const seg = leftSeg ?? rightSeg;
+            if (!seg) return null;
+            const fromX = leftSeg ? LEFT_X + LEFT_W : RIGHT_X;
+            const midY = (seg.y0 + seg.y1) / 2;
+            badge = { x: GUTTER_X, y: midY };
+            band = (
+              <>
+                <line
+                  x1={fromX}
+                  y1={midY}
+                  x2={GUTTER_X}
+                  y2={midY}
+                  stroke={color}
+                  strokeWidth={isSelected ? 3 : 1.5}
+                  strokeDasharray="6 4"
                 />
-                <circle cx={badgeX} cy={badgeY} r={11} fill="#fff" stroke={color} strokeWidth={1.5} />
-                <text x={badgeX} y={badgeY + 4} textAnchor="middle" className="badge">
-                  {step.index}
+                <text
+                  x={GUTTER_X + (leftSeg ? 16 : -16)}
+                  y={midY + 4}
+                  textAnchor={leftSeg ? "start" : "end"}
+                  className="missing-label"
+                >
+                  ∅ 缺失
                 </text>
-              </g>
+              </>
             );
           }
 
-          const seg = leftSeg ?? rightSeg;
-          if (!seg) return null;
-          const fromX = leftSeg ? LEFT_X + LEFT_W : RIGHT_X;
-          const midY = (seg.y0 + seg.y1) / 2;
           return (
             <g
               key={step.index}
@@ -126,27 +178,55 @@ export function Diagram({ steps, selected, onSelect }: DiagramProps) {
               onMouseEnter={() => onSelect(step.index)}
               onClick={() => onSelect(step.index)}
             >
-              <line
-                x1={fromX}
-                y1={midY}
-                x2={GUTTER_X}
-                y2={midY}
-                stroke={color}
-                strokeWidth={isSelected ? 3 : 1.5}
-                strokeDasharray="6 4"
+              {band}
+              <circle
+                cx={badge.x}
+                cy={badge.y}
+                r={11}
+                fill="#fff"
+                stroke={isFragile ? "#c62828" : color}
+                strokeWidth={isFragile ? 2.5 : 1.5}
               />
-              <circle cx={GUTTER_X} cy={midY} r={11} fill="#fff" stroke={color} strokeWidth={1.5} />
-              <text x={GUTTER_X} y={midY + 4} textAnchor="middle" className="badge">
+              <text x={badge.x} y={badge.y + 4} textAnchor="middle" className="badge">
                 {step.index}
               </text>
-              <text
-                x={GUTTER_X + (leftSeg ? 16 : -16)}
-                y={midY + 4}
-                textAnchor={leftSeg ? "start" : "end"}
-                className="missing-label"
-              >
-                ∅ 缺失
-              </text>
+              {margin && (
+                <text
+                  x={badge.x}
+                  y={badge.y + 26}
+                  textAnchor="middle"
+                  className="margin-label"
+                  data-testid={`margin-${step.index}`}
+                >
+                  {formatMargin(margin)}
+                </text>
+              )}
+              {isFragile && (
+                <g
+                  data-testid="fragile-marker"
+                  className="fragile-marker"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onToggleAlternative();
+                  }}
+                >
+                  <title>最脆弱步：点击查看替代图</title>
+                  <rect
+                    x={badge.x - 34}
+                    y={badge.y - 40}
+                    width={68}
+                    height={30}
+                    fill="transparent"
+                  />
+                  <polygon
+                    points={`${badge.x},${badge.y - 26} ${badge.x - 7},${badge.y - 14} ${badge.x + 7},${badge.y - 14}`}
+                    fill="#c62828"
+                  />
+                  <text x={badge.x} y={badge.y - 32} textAnchor="middle" className="fragile-label">
+                    最脆弱
+                  </text>
+                </g>
+              )}
             </g>
           );
         })}
@@ -189,7 +269,7 @@ export function Diagram({ steps, selected, onSelect }: DiagramProps) {
           </g>
         ))}
         <text x={LEFT_X} y={svgHeight - 8} className="legend-label">
-          红边 = 代表岩性不同罚 +300；虚线 = 缺失步
+          红边 = 代表岩性不同罚 +300；虚线 = 缺失步；徽标下数字 = 替代裕量（代价/缺失/分组）
         </text>
       </svg>
     </figure>

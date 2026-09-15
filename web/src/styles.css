@@ -174,6 +174,39 @@ button.link {
   margin: 0;
 }
 
+.diagram-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  font-size: 12px;
+  color: #546e7a;
+  margin-bottom: 6px;
+}
+
+.diagram-toolbar button {
+  padding: 3px 10px;
+  font-size: 12px;
+  color: #c62828;
+  border-color: #ef9a9a;
+}
+
+.margin-label {
+  font-size: 9px;
+  fill: #8d6e63;
+  font-variant-numeric: tabular-nums;
+}
+
+.fragile-marker {
+  cursor: pointer;
+}
+
+.fragile-label {
+  font-size: 10px;
+  font-weight: 700;
+  fill: #c62828;
+}
+
 .column-title {
   font-size: 14px;
   font-weight: 600;
