@@ -1,0 +1,22 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+*.egg-info/
+
+# Node / 前端产物
+node_modules/
+web/dist/
+
+# 测试产物
+test-results/
+playwright-report/
+web/test-results/
+web/playwright-report/
+
+# 环境变量
+.env
+
+# 系统文件
+.DS_Store

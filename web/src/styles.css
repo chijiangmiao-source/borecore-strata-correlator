@@ -1,0 +1,278 @@
+:root {
+  color-scheme: light;
+  font-family: "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", system-ui, sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: #f4f6f8;
+  color: #263238;
+}
+
+.app {
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: 24px 20px 48px;
+}
+
+h1 {
+  font-size: 22px;
+  margin: 0 0 6px;
+}
+
+header p {
+  margin: 0 0 18px;
+  color: #607d8b;
+  font-size: 13px;
+}
+
+.editors {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+.column-editor {
+  background: #fff;
+  border: 1px solid #dfe5ea;
+  border-radius: 8px;
+  padding: 14px 16px;
+}
+
+.column-editor h2 {
+  font-size: 16px;
+  margin: 0 0 10px;
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+}
+
+.layer-count {
+  font-size: 12px;
+  color: #78909c;
+  font-weight: normal;
+}
+
+.column-editor table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-bottom: 10px;
+}
+
+.column-editor th,
+.column-editor td {
+  padding: 4px 6px;
+  font-size: 13px;
+  text-align: left;
+}
+
+.column-editor thead th {
+  color: #78909c;
+  font-weight: normal;
+  border-bottom: 1px solid #eceff1;
+}
+
+.layer-no {
+  width: 36px;
+  color: #546e7a;
+  font-variant-numeric: tabular-nums;
+}
+
+.column-editor select,
+.column-editor input {
+  width: 100%;
+  padding: 4px 6px;
+  border: 1px solid #cfd8dc;
+  border-radius: 4px;
+  font-size: 13px;
+}
+
+.column-editor input {
+  font-variant-numeric: tabular-nums;
+}
+
+button {
+  padding: 6px 14px;
+  border: 1px solid #b0bec5;
+  background: #fff;
+  border-radius: 4px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+button.primary {
+  background: #1565c0;
+  border-color: #1565c0;
+  color: #fff;
+}
+
+button.link {
+  border: none;
+  background: none;
+  color: #1565c0;
+  padding: 2px 4px;
+}
+
+.actions {
+  display: flex;
+  gap: 10px;
+  margin: 16px 0;
+}
+
+.errors {
+  background: #ffebee;
+  border: 1px solid #ef9a9a;
+  border-radius: 8px;
+  padding: 10px 14px 10px 32px;
+  margin: 0 0 16px;
+  color: #b71c1c;
+  font-size: 13px;
+}
+
+.result {
+  background: #fff;
+  border: 1px solid #dfe5ea;
+  border-radius: 8px;
+  padding: 14px 16px;
+}
+
+.totals {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 18px;
+  font-size: 14px;
+  font-weight: 600;
+  padding-bottom: 12px;
+  border-bottom: 1px solid #eceff1;
+  margin-bottom: 12px;
+}
+
+.totals code {
+  font-weight: 400;
+  background: #eceff1;
+  padding: 1px 6px;
+  border-radius: 4px;
+}
+
+.result-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 7fr) minmax(0, 5fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.diagram {
+  margin: 0;
+}
+
+.column-title {
+  font-size: 14px;
+  font-weight: 600;
+  fill: #37474f;
+}
+
+.layer-box {
+  fill: #eceff1;
+  stroke: #90a4ae;
+  stroke-width: 1;
+}
+
+.layer-label {
+  font-size: 10px;
+  fill: #455a64;
+}
+
+.badge {
+  font-size: 10px;
+  font-weight: 700;
+  fill: #37474f;
+}
+
+.missing-label {
+  font-size: 10px;
+  fill: #616161;
+}
+
+.legend-label {
+  font-size: 10px;
+  fill: #607d8b;
+}
+
+.band {
+  cursor: pointer;
+}
+
+.step-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 560px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.step-card {
+  border: 1px solid #dfe5ea;
+  border-radius: 6px;
+  padding: 8px 12px;
+  font-size: 13px;
+}
+
+.step-card.selected {
+  border-color: #1565c0;
+  box-shadow: 0 0 0 1px #1565c0;
+}
+
+.step-card header {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+}
+
+.step-type {
+  font-family: ui-monospace, monospace;
+  background: #eceff1;
+  border-radius: 4px;
+  padding: 0 6px;
+}
+
+.step-kind {
+  color: #78909c;
+  font-size: 12px;
+}
+
+.step-layers {
+  margin: 4px 0;
+  color: #37474f;
+}
+
+.cost-lines {
+  margin: 4px 0;
+  padding-left: 18px;
+  color: #546e7a;
+  font-variant-numeric: tabular-nums;
+}
+
+.step-card footer {
+  color: #1565c0;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+@media (max-width: 900px) {
+  .editors,
+  .result-grid {
+    grid-template-columns: 1fr;
+  }
+}
