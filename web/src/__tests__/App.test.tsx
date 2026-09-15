@@ -42,7 +42,9 @@ describe("App", () => {
       "1:1",
       "0:1",
     ]);
-    expect(screen.getByTestId("step-2")).toHaveTextContent("左孔第2层 ↔ 缺失");
+    expect(screen.getByTestId("step-2")).toHaveTextContent("左孔第2层 ↔ 右孔缺失");
+    expect(screen.getByTestId("step-2")).toHaveTextContent("右孔缺失");
+    expect(screen.getByTestId("step-7")).toHaveTextContent("左孔缺失 ↔ 右孔第7层");
     expect(screen.getByTestId("step-5")).toHaveTextContent("左孔第6层 ↔ 右孔第4–5层");
     expect(screen.getByTestId("step-7")).toHaveTextContent("累计：代价 725");
     expect(screen.getByTestId("fingerprint")).toHaveTextContent(/^[0-9a-f]{8}$/);
@@ -77,5 +79,65 @@ describe("App", () => {
     await waitFor(() =>
       expect(screen.getByTestId("errors")).toHaveTextContent("左列第3层"),
     );
+  });
+
+  it("计算后修改任一孔任一层，旧连带图与旧代价立即失效", async () => {
+    render(<App />);
+    fireEvent.click(screen.getByRole("button", { name: "载入示例" }));
+    fireEvent.click(screen.getByRole("button", { name: "开始对应" }));
+    await waitFor(() => expect(screen.getByTestId("diagram")).toBeInTheDocument());
+
+    // 修改左孔一层：证据失效
+    fireEvent.change(screen.getByTestId("layer-thickness-left-0"), {
+      target: { value: "55" },
+    });
+    expect(screen.queryByTestId("diagram")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("totals")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("step-list")).not.toBeInTheDocument();
+
+    // 重新计算后修改右孔一层：同样失效
+    fireEvent.click(screen.getByRole("button", { name: "开始对应" }));
+    await waitFor(() => expect(screen.getByTestId("diagram")).toBeInTheDocument());
+    fireEvent.change(screen.getByTestId("layer-thickness-right-6"), {
+      target: { value: "30" },
+    });
+    expect(screen.queryByTestId("diagram")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("totals")).not.toBeInTheDocument();
+  });
+
+  it("校验错误在编辑输入后同样失效", () => {
+    render(<App />);
+    fireEvent.click(screen.getByRole("button", { name: "载入示例" }));
+    fireEvent.change(screen.getByTestId("layer-thickness-right-1"), {
+      target: { value: "0" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "开始对应" }));
+    expect(screen.getByTestId("errors")).toHaveTextContent("右列第2层");
+
+    fireEvent.change(screen.getByTestId("layer-thickness-right-1"), {
+      target: { value: "95" },
+    });
+    expect(screen.queryByTestId("errors")).not.toBeInTheDocument();
+  });
+
+  it("在途响应返回前输入已变化时丢弃旧证据", async () => {
+    let resolveRequest: (value: typeof EXAMPLE_RESPONSE) => void = () => {};
+    mockedCorrelate.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveRequest = resolve;
+        }),
+    );
+    render(<App />);
+    fireEvent.click(screen.getByRole("button", { name: "开始对应" }));
+    // 响应尚未返回时修改输入
+    fireEvent.change(screen.getByTestId("layer-thickness-left-0"), {
+      target: { value: "55" },
+    });
+    resolveRequest(EXAMPLE_RESPONSE);
+    await waitFor(() => expect(screen.getByRole("button", { name: "开始对应" })).toBeEnabled());
+    // 旧输入对应的响应不得展示
+    expect(screen.queryByTestId("diagram")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("totals")).not.toBeInTheDocument();
   });
 });

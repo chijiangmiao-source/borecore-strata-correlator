@@ -1,10 +1,20 @@
 import { describe, expect, it } from "vitest";
 
-import { costLines, stepLayersText } from "../format";
+import { costLines, STEP_LABELS, stepLayersText } from "../format";
 import { EXAMPLE_RESPONSE } from "../test/fixtures";
 
 const steps = EXAMPLE_RESPONSE.steps;
 const byType = (type: string) => steps.find((step) => step.type === type)!;
+
+describe("STEP_LABELS 缺失方向", () => {
+  it("1:0 消耗左孔的层，表示该层在右孔缺失", () => {
+    expect(STEP_LABELS["1:0"]).toBe("右孔缺失");
+  });
+
+  it("0:1 消耗右孔的层，表示该层在左孔缺失", () => {
+    expect(STEP_LABELS["0:1"]).toBe("左孔缺失");
+  });
+});
 
 describe("stepLayersText", () => {
   it("单层对单层", () => {
@@ -19,9 +29,11 @@ describe("stepLayersText", () => {
     expect(stepLayersText(byType("1:2"))).toBe("左孔第6层 ↔ 右孔第4–5层");
   });
 
-  it("缺失步展示缺失侧", () => {
-    expect(stepLayersText(byType("1:0"))).toBe("左孔第2层 ↔ 缺失");
-    expect(stepLayersText(byType("0:1"))).toBe("缺失 ↔ 右孔第7层");
+  it("缺失步显式标注缺失的一侧", () => {
+    // 左孔第2层（C 25mm）在右孔无对应层
+    expect(stepLayersText(byType("1:0"))).toBe("左孔第2层 ↔ 右孔缺失");
+    // 右孔第7层（H 25mm）在左孔无对应层
+    expect(stepLayersText(byType("0:1"))).toBe("左孔缺失 ↔ 右孔第7层");
   });
 });
 

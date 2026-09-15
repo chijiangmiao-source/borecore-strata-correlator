@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 
 import { ApiValidationError, correlate } from "./api";
 import { ColumnEditor } from "./components/ColumnEditor";
@@ -16,13 +16,30 @@ export default function App() {
   const [result, setResult] = useState<CorrelateResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [selected, setSelected] = useState<number | null>(null);
+  // 请求序号：输入一旦变化即递增，使在途响应与既有证据一并失效
+  const requestSeq = useRef(0);
+
+  function invalidate() {
+    requestSeq.current += 1;
+    setResult(null);
+    setErrors([]);
+    setSelected(null);
+  }
+
+  function updateLeft(layers: LayerDraft[]) {
+    setLeft(layers);
+    invalidate();
+  }
+
+  function updateRight(layers: LayerDraft[]) {
+    setRight(layers);
+    invalidate();
+  }
 
   function loadExample() {
     setLeft(EXAMPLE_LEFT);
     setRight(EXAMPLE_RIGHT);
-    setErrors([]);
-    setResult(null);
-    setSelected(null);
+    invalidate();
   }
 
   async function submit() {
@@ -32,18 +49,26 @@ export default function App() {
       setResult(null);
       return;
     }
+    const seq = ++requestSeq.current;
     setLoading(true);
     setErrors([]);
     try {
       const response = await correlate(toPayload(left), toPayload(right));
-      setResult(response);
-      setSelected(null);
+      // 若在途期间输入被修改，响应已对应旧输入，直接丢弃
+      if (seq === requestSeq.current) {
+        setResult(response);
+        setSelected(null);
+      }
     } catch (error) {
-      setResult(null);
-      if (error instanceof ApiValidationError) {
-        setErrors(error.errors);
-      } else {
-        setErrors([{ loc: "network", message: error instanceof Error ? error.message : String(error) }]);
+      if (seq === requestSeq.current) {
+        setResult(null);
+        if (error instanceof ApiValidationError) {
+          setErrors(error.errors);
+        } else {
+          setErrors([
+            { loc: "network", message: error instanceof Error ? error.message : String(error) },
+          ]);
+        }
       }
     } finally {
       setLoading(false);
@@ -61,8 +86,8 @@ export default function App() {
       </header>
 
       <div className="editors">
-        <ColumnEditor title="左孔" side="left" layers={left} onChange={setLeft} />
-        <ColumnEditor title="右孔" side="right" layers={right} onChange={setRight} />
+        <ColumnEditor title="左孔" side="left" layers={left} onChange={updateLeft} />
+        <ColumnEditor title="右孔" side="right" layers={right} onChange={updateRight} />
       </div>
 
       <div className="actions">

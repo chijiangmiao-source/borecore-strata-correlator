@@ -25,6 +25,25 @@ test("示例联调：页面证据与算法结果一致", async ({ page }) => {
   await expect(page.getByTestId("step-3")).toContainText("累计：代价 335");
   await expect(page.getByTestId("step-2")).toContainText("缺失基准 200 + 厚度×2（2×25=50）");
   await expect(page.getByTestId("step-7")).toContainText("累计：代价 725 · 缺失 2 · 分组 2");
+
+  // 缺层方向：左孔第2层在右孔缺失（1:0），右孔第7层在左孔缺失（0:1）
+  await expect(page.getByTestId("step-2")).toContainText("左孔第2层 ↔ 右孔缺失");
+  await expect(page.getByTestId("step-7")).toContainText("左孔缺失 ↔ 右孔第7层");
+});
+
+test("计算后修改任一孔层，旧连带图与旧代价立即失效", async ({ page }) => {
+  await loadExampleAndSubmit(page);
+  await expect(page.getByTestId("diagram")).toBeVisible();
+
+  await page.getByTestId("layer-thickness-left-0").fill("55");
+  await expect(page.getByTestId("diagram")).not.toBeVisible();
+  await expect(page.getByTestId("totals")).not.toBeVisible();
+  await expect(page.getByTestId("step-list")).not.toBeVisible();
+
+  // 重新提交得到与新输入一致的证据
+  await page.getByRole("button", { name: "开始对应" }).click();
+  await expect(page.getByTestId("totals")).toBeVisible();
+  await expect(page.getByTestId("totals")).not.toContainText("总代价 725");
 });
 
 test("同成本分叉、首尾缺层与分组交错：刷新与重复提交得到完全相同的对应证据", async ({

@@ -6,18 +6,19 @@ export const STEP_LABELS: Record<StepType, string> = {
   "1:1": "单层对单层",
   "1:2": "单层对两层",
   "2:1": "两层对单层",
-  "1:0": "左列缺失",
-  "0:1": "右列缺失",
+  // 1:0 消耗的是左孔的层：该层在右孔无对应，即右孔缺失
+  "1:0": "右孔缺失",
+  "0:1": "左孔缺失",
 };
 
 function sideText(layers: StepLayer[], sideName: string): string {
-  if (layers.length === 0) return "缺失";
+  if (layers.length === 0) return `${sideName}缺失`;
   const first = layers[0].layer;
   const last = layers[layers.length - 1].layer;
   return first === last ? `${sideName}第${first}层` : `${sideName}第${first}–${last}层`;
 }
 
-/** 例如 “左孔第3–4层 ↔ 右孔第2层”、“左孔第2层 ↔ 缺失”。 */
+/** 例如 “左孔第3–4层 ↔ 右孔第2层”、“左孔第2层 ↔ 右孔缺失”。 */
 export function stepLayersText(step: Step): string {
   return `${sideText(step.left, "左孔")} ↔ ${sideText(step.right, "右孔")}`;
 }
