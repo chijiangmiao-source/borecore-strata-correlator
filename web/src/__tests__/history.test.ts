@@ -235,6 +235,92 @@ describe("重做分支截断", () => {
     expect(canRedo(stepped.history)).toBe(true);
   });
 
+  it("撤销结构操作后在同一厚度框继续键入，另起新项，撤销先停在分支点", () => {
+    let history = initialHistory(initial);
+
+    // 1. 右孔第 0 层厚度连续键入（合并为一项）：30 → 31
+    history = commit(history, state(initial.left, [{ code: "C", thickness: "3" }]), thickness("right", 0));
+    history = commit(history, state(initial.left, [{ code: "C", thickness: "31" }]), thickness("right", 0));
+    // 2. 右孔追加一层（结构操作，独立成项）
+    history = commit(
+      history,
+      state(initial.left, [
+        { code: "C", thickness: "31" },
+        { code: "A", thickness: "100" },
+      ]),
+      { focus: { side: "right", field: "thickness", index: 1 } },
+    );
+
+    // 撤销结构操作：分支点停在第 1 项之后（右孔 1 层、厚度 31），future 非空
+    history = undo(history).history;
+    expect(history.present.right).toEqual([{ code: "C", thickness: "31" }]);
+    expect(canRedo(history)).toBe(true);
+
+    // 在同一厚度框（right:0）继续键入 35：旧实现会跨过分支点并入第 1 项
+    history = commit(history, state(initial.left, [{ code: "C", thickness: "35" }]), thickness("right", 0));
+    expect(history.future).toHaveLength(0);
+    expect(history.past).toHaveLength(2);
+
+    // 第一次撤销必须停在分支点 31，而不是跳过它退回更早的 30
+    history = undo(history).history;
+    expect(history.present.right[0].thickness).toBe("31");
+    expect(canUndo(history)).toBe(true);
+
+    // 再撤销一次才回到键入前的 30
+    history = undo(history).history;
+    expect(history.present.right[0].thickness).toBe("30");
+    expect(canUndo(history)).toBe(false);
+  });
+
+  it("撤销右孔厚度后再改左孔同位置厚度框，撤销不跳过分支点、不丢更早值", () => {
+    let history = initialHistory(initial);
+
+    // 1. 左孔第 0 层厚度键入：10 → 12（合并为一项 E1，mergeKey = thickness:left:0）
+    history = commit(
+      history,
+      state([{ code: "A", thickness: "1" }, { code: "B", thickness: "20" }], initial.right),
+      thickness("left", 0),
+    );
+    history = commit(
+      history,
+      state([{ code: "A", thickness: "12" }, { code: "B", thickness: "20" }], initial.right),
+      thickness("left", 0),
+    );
+    // 2. 右孔第 0 层厚度键入：30 → 31（E2，mergeKey = thickness:right:0）
+    history = commit(
+      history,
+      state(history.present.left, [{ code: "C", thickness: "31" }]),
+      thickness("right", 0),
+    );
+
+    // 撤销右孔厚度：分支点为左 12 / 右 30，future 非空；此时 past 栈顶恰是左孔键入项 E1
+    history = undo(history).history;
+    expect(history.present.left[0].thickness).toBe("12");
+    expect(history.present.right[0].thickness).toBe("30");
+    expect(history.past[history.past.length - 1].mergeKey).toBe("thickness:left:0");
+    expect(canRedo(history)).toBe(true);
+
+    // 再改左孔同一厚度框（同 mergeKey）：旧实现会跨过分支点并入 E1，覆盖分支点快照
+    history = commit(
+      history,
+      state([{ code: "A", thickness: "15" }, { code: "B", thickness: "20" }], initial.right),
+      thickness("left", 0),
+    );
+    expect(history.future).toHaveLength(0);
+
+    // 第一次撤销必须停在分支点（左 12 / 右 30），而不是跳过它退回左 10
+    history = undo(history).history;
+    expect(history.present.left[0].thickness).toBe("12");
+    expect(history.present.right[0].thickness).toBe("30");
+    expect(canUndo(history)).toBe(true);
+
+    // 再撤销一次才回到左孔键入前（左 10 / 右 30）
+    history = undo(history).history;
+    expect(history.present.left[0].thickness).toBe("10");
+    expect(history.present.right[0].thickness).toBe("30");
+    expect(canUndo(history)).toBe(false);
+  });
+
   it("超过历史上限后基线推进，撤销到尽头落到最早可达状态而非初始数据", () => {
     let history = initialHistory(initial);
     // 产生 MAX_HISTORY+2 个离散编辑（岩性在 A/B 间切换，避免连续键入合并）

@@ -372,6 +372,79 @@ test("两个槽都不可用时保留当前初始数据、禁用恢复并在操�
   await expect(page.getByTestId("totals")).toBeVisible();
 });
 
+test("回退后在分支点继续键入：撤销停在分支点而不跳过、不丢更早值", async ({ page }) => {
+  await page.goto("/");
+  await page.getByRole("button", { name: "载入示例" }).click();
+
+  // 左孔第 1 层 20 → 12（一项），右孔第 1 层 100 → 31（一项）
+  await page.getByTestId("layer-thickness-left-0").fill("12");
+  await page.getByTestId("layer-thickness-right-0").fill("31");
+
+  // 撤销右孔厚度：分支点为 左 12 / 右 100，此时历史栈顶恰为左孔键入项
+  await page.getByTestId("undo").click();
+  await expect(page.getByTestId("layer-thickness-right-0")).toHaveValue("100");
+  await expect(page.getByTestId("layer-thickness-left-0")).toHaveValue("12");
+  await expect(page.getByTestId("redo")).toBeEnabled();
+
+  // 再改左孔同一厚度框：旧实现会跨过分支点并入左孔旧项
+  await page.getByTestId("layer-thickness-left-0").fill("15");
+
+  // 第一次撤销必须停在分支点（左 12 / 右 100），而不是跳回左 20
+  await page.getByTestId("undo").click();
+  await expect(page.getByTestId("layer-thickness-left-0")).toHaveValue("12");
+  await expect(page.getByTestId("layer-thickness-right-0")).toHaveValue("100");
+
+  // 再撤销一次才回到示例的左 20
+  await page.getByTestId("undo").click();
+  await expect(page.getByTestId("layer-thickness-left-0")).toHaveValue("20");
+  await expect(page.getByTestId("layer-thickness-right-0")).toHaveValue("100");
+});
+
+test("损坏槽代次为超大整数后连续编辑，刷新仍恢复最新一次修改", async ({ page }) => {
+  await page.goto("/");
+  await page.getByRole("button", { name: "载入示例" }).click();
+  // 第一次修改，确保两个槽都已存在完好检查点
+  await page.getByTestId("layer-thickness-left-0").fill("21");
+
+  // 把 A 槽伪造成代次 1e16（整数但超过安全范围，1e16+1 === 1e16）且结构损坏
+  await page.evaluate(() => {
+    const raw = window.localStorage.getItem("strata-correlation:cp:a");
+    const envelope = raw ? JSON.parse(raw) : {};
+    envelope.g = 1e16;
+    envelope.present = null;
+    window.localStorage.setItem("strata-correlation:cp:a", JSON.stringify(envelope));
+  });
+
+  // 连续两次新修改：旧实现会让两槽同代次（1e16），刷新时误取旧槽
+  await page.getByTestId("layer-thickness-left-0").fill("22");
+  await page.getByTestId("layer-thickness-left-0").fill("23");
+
+  // 新代次必须只按完好槽递增：两槽代次为相邻的安全整数，且都不被污染为 1e16
+  const slots = await page.evaluate(() => {
+    const read = (name: string) => {
+      const raw = window.localStorage.getItem(`strata-correlation:cp:${name}`);
+      if (!raw) return null;
+      const envelope = JSON.parse(raw) as {
+        g: number;
+        present: { left: { thickness: string }[] };
+      };
+      return { g: envelope.g, thickness: envelope.present.left[0].thickness };
+    };
+    return { a: read("a"), b: read("b") };
+  });
+  expect(slots.a).not.toBeNull();
+  expect(slots.b).not.toBeNull();
+  expect(Number.isSafeInteger(slots.a!.g)).toBe(true);
+  expect(Number.isSafeInteger(slots.b!.g)).toBe(true);
+  expect(Math.abs(slots.a!.g - slots.b!.g)).toBe(1);
+  const newest = slots.a!.g > slots.b!.g ? slots.a! : slots.b!;
+  expect(newest.thickness).toBe("23");
+
+  await page.reload();
+  // 必须恢复最新一次修改，而不是上一次（22）或更早（21）
+  await expect(page.getByTestId("layer-thickness-left-0")).toHaveValue("23");
+});
+
 test("关闭存储权限时降级为当前会话内撤销/重做", async ({ page, context }) => {
   await context.addInitScript(() => {
     Object.defineProperty(window, "localStorage", {

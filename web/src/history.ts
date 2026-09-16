@@ -3,6 +3,8 @@
  *
  * - 每次提交记录的是两列完整草稿快照，因此撤销/重做总能同时恢复左右两孔；
  * - 同一输入控件（某列某层厚度框）的连续键入携带相同 mergeKey，合并为一项；
+ *   撤销一旦发生（future 非空，即停在回退分支点），随后的键入必须另起新项，
+ *   否则会跨过分支点合并、使下一次撤销跳回更早的状态；
  * - 岩性下拉切换、增删层、载入示例等离散操作不携带 mergeKey，各自成项；
  * - 任何新提交都会清空 future（截断重做分支）。
  */
@@ -93,7 +95,9 @@ export function commit(
   const last = history.past[history.past.length - 1];
   let past: HistoryEntry[];
   let baseline = history.baseline;
-  if (mergeKey && last && last.mergeKey === mergeKey) {
+  // 仅当当前处于历史“末端”（future 为空）时才允许并入栈顶；
+  // 停在回退分支点时即便 mergeKey 相同也必须另起一项，避免下一次撤销跳过分支点。
+  if (mergeKey && history.future.length === 0 && last && last.mergeKey === mergeKey) {
     // 连续键入：更新该项快照为最新草稿，焦点仍是同一控件，历史项不增加。
     const merged = { ...last, state: cloneDrafts(next) };
     past = [...history.past.slice(0, -1), merged];

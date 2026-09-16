@@ -22,6 +22,8 @@ import {
 import type { LayerDraft } from "./types";
 
 const FORMAT_VERSION = 1;
+/** 代次安全上限：超过后停留在该值（实际编辑量不可能触及，主要防御损坏槽伪造超大整数）。 */
+const MAX_GENERATION = Number.MAX_SAFE_INTEGER;
 const KEY_PREFIX = "strata-correlation:cp:";
 const SLOTS = ["a", "b"] as const;
 type Slot = (typeof SLOTS)[number];
@@ -44,6 +46,8 @@ export interface SlotInspection {
   reason: SlotReason;
   /** 能解析出的代次（即使校验失败也尽量读取，用于维持代次递增）。 */
   generation: number | null;
+  /** 写入时间戳；同代次并列时取更新者。 */
+  timestamp: number | null;
   history?: HistoryState;
 }
 
@@ -202,7 +206,13 @@ export class DualSlotHistoryStore {
   }
 
   private inspectSlot(slot: Slot): SlotInspection {
-    const empty: SlotInspection = { slot, ok: false, reason: "empty", generation: null };
+    const empty: SlotInspection = {
+      slot,
+      ok: false,
+      reason: "empty",
+      generation: null,
+      timestamp: null,
+    };
     if (!this.storage) return { ...empty, reason: "unavailable" };
     let raw: string | null = null;
     try {
@@ -224,16 +234,18 @@ export class DualSlotHistoryStore {
       typeof parsed.g === "number" && Number.isInteger(parsed.g) && parsed.g >= 1
         ? parsed.g
         : null;
+    const timestamp = typeof parsed.t === "number" && Number.isFinite(parsed.t) ? parsed.t : null;
     const damaged = (reason: SlotReason): SlotInspection => ({
       slot,
       ok: false,
       reason,
       generation,
+      timestamp,
     });
     if (parsed.v !== FORMAT_VERSION) return damaged("version-unknown");
     if (
       generation === null ||
-      typeof parsed.t !== "number" ||
+      timestamp === null ||
       typeof parsed.sum !== "string" ||
       !isDrafts(parsed.baseline) ||
       !isEntryList(parsed.past) ||
@@ -245,7 +257,7 @@ export class DualSlotHistoryStore {
     const expected = checksumFor({
       v: FORMAT_VERSION,
       g: generation,
-      t: parsed.t as number,
+      t: timestamp,
       baseline: parsed.baseline as Drafts,
       past: parsed.past as HistoryEntry[],
       present: parsed.present as Drafts,
@@ -258,6 +270,7 @@ export class DualSlotHistoryStore {
       ok: true,
       reason: "ok",
       generation,
+      timestamp,
       history: toHistory({
         baseline: parsed.baseline as Drafts,
         past: parsed.past as HistoryEntry[],
@@ -274,7 +287,13 @@ export class DualSlotHistoryStore {
     const slots = SLOTS.map((slot) => this.inspectSlot(slot));
     const valid = slots
       .filter((inspection): inspection is SlotInspection & { history: HistoryState } => inspection.ok)
-      .sort((a, b) => (b.generation ?? 0) - (a.generation ?? 0));
+      // 先按代次、再按写入时间戳选取最新完整检查点（封顶后同代次的兜底决胜）。
+      .sort((a, b) => {
+        if ((b.generation ?? 0) !== (a.generation ?? 0)) {
+          return (b.generation ?? 0) - (a.generation ?? 0);
+        }
+        return (b.timestamp ?? 0) - (a.timestamp ?? 0);
+      });
 
     if (valid.length === 0) {
       const anyWritten = slots.some(
@@ -304,20 +323,28 @@ export class DualSlotHistoryStore {
    * 写入下一代检查点，返回代次与落入的槽位。
    * 始终写在“最新完整代次所在槽”的对侧：正常情况下两槽自然交替；
    * 若最新槽损坏，则覆盖损坏槽而保留完好的回退副本。
+   *
+   * 代次只从完好槽递增：损坏槽里读出的 g 可能是超过安全整数范围的大整数，
+   * 若计入编号会让 g+1 因浮点精度原地不动，造成两槽同代次、刷新时误取旧槽
+   * 而丢掉最新修改。代次封顶在 MAX_SAFE_INTEGER；同代次时以时间戳更新者为准。
    */
   save(history: HistoryState): SaveOutcome | null {
     if (!this.storage) return null;
     try {
       const inspections = SLOTS.map((slot) => this.inspectSlot(slot));
-      const newestValid = inspections
+      const valid = inspections
         .filter((inspection) => inspection.ok)
-        .sort((a, b) => (b.generation ?? 0) - (a.generation ?? 0))[0];
+        .sort((a, b) => {
+          if ((b.generation ?? 0) !== (a.generation ?? 0)) {
+            return (b.generation ?? 0) - (a.generation ?? 0);
+          }
+          return (b.timestamp ?? 0) - (a.timestamp ?? 0);
+        });
+      const newestValid = valid[0];
       const target: Slot = newestValid ? (newestValid.slot === "a" ? "b" : "a") : "a";
-      const observedMax = inspections.reduce(
-        (max, inspection) => Math.max(max, inspection.generation ?? 0),
-        0,
-      );
-      const generation = observedMax + 1;
+      // 编号来源仅限完好槽；两者皆坏时从 1 重新开始（内容以时间戳与校验值为准）。
+      const validMax = newestValid?.generation ?? 0;
+      const generation = validMax >= MAX_GENERATION ? MAX_GENERATION : validMax + 1;
       const parts = {
         v: FORMAT_VERSION,
         g: generation,
