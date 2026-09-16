@@ -126,6 +126,17 @@ button.link {
   display: flex;
   gap: 10px;
   margin: 16px 0;
+  align-items: center;
+}
+
+.history-note {
+  margin: -6px 0 16px;
+  padding: 8px 12px;
+  background: #fff8e1;
+  border: 1px solid #ffe082;
+  border-radius: 8px;
+  color: #6d4c00;
+  font-size: 12px;
 }
 
 .errors {

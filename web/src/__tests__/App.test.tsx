@@ -249,4 +249,152 @@ describe("App", () => {
     expect(screen.queryByTestId("toggle-alternative")).not.toBeInTheDocument();
     expect(screen.queryByTestId("fragile-marker")).not.toBeInTheDocument();
   });
+
+  it("初始时撤销/重做均不可用", () => {
+    render(<App />);
+    expect(screen.getByTestId("undo")).toBeDisabled();
+    expect(screen.getByTestId("redo")).toBeDisabled();
+  });
+
+  it("跨列增删与合并键入按实际发生顺序往返，结构操作各自成项", () => {
+    render(<App />);
+    fireEvent.click(screen.getByRole("button", { name: "载入示例" }));
+    expect(screen.getByTestId("editor-left")).toHaveTextContent("7 层");
+
+    // 左孔添加层（结构项），新层厚度连续键入合并为一项
+    fireEvent.click(screen.getByTestId("add-left"));
+    expect(screen.getByTestId("editor-left")).toHaveTextContent("8 层");
+    const addedThickness = screen.getByTestId("layer-thickness-left-7");
+    fireEvent.change(addedThickness, { target: { value: "" } });
+    fireEvent.change(addedThickness, { target: { value: "1" } });
+    fireEvent.change(addedThickness, { target: { value: "15" } });
+    expect(addedThickness).toHaveValue("15");
+
+    // 右孔删除一层（结构项）
+    fireEvent.click(screen.getByTestId("remove-right-6"));
+    expect(screen.getByTestId("editor-right")).toHaveTextContent("6 层");
+
+    const undoButton = screen.getByTestId("undo");
+    const redoButton = screen.getByTestId("redo");
+
+    // 依次撤销：删右孔层 → 左孔厚度合并键入 → 左孔加层 → 载入示例
+    fireEvent.click(undoButton);
+    expect(screen.getByTestId("editor-right")).toHaveTextContent("7 层");
+    fireEvent.click(undoButton);
+    expect(screen.getByTestId("layer-thickness-left-7")).toHaveValue("100");
+    fireEvent.click(undoButton);
+    expect(screen.getByTestId("editor-left")).toHaveTextContent("7 层");
+    fireEvent.click(undoButton);
+    expect(screen.getByTestId("editor-left")).toHaveTextContent("3 层");
+    expect(screen.getByTestId("editor-right")).toHaveTextContent("3 层");
+    expect(undoButton).toBeDisabled();
+    expect(redoButton).toBeEnabled();
+
+    // 按原顺序重做回放，连续键入仍只是一项
+    fireEvent.click(redoButton);
+    expect(screen.getByTestId("editor-left")).toHaveTextContent("7 层");
+    fireEvent.click(redoButton);
+    expect(screen.getByTestId("editor-left")).toHaveTextContent("8 层");
+    expect(screen.getByTestId("layer-thickness-left-7")).toHaveValue("100");
+    fireEvent.click(redoButton);
+    expect(screen.getByTestId("layer-thickness-left-7")).toHaveValue("15");
+    fireEvent.click(redoButton);
+    expect(screen.getByTestId("editor-right")).toHaveTextContent("6 层");
+    expect(redoButton).toBeDisabled();
+  });
+
+  it("回退后的任何新编辑都会截断重做分支", () => {
+    render(<App />);
+    fireEvent.click(screen.getByRole("button", { name: "载入示例" }));
+    fireEvent.change(screen.getByTestId("layer-thickness-left-0"), {
+      target: { value: "55" },
+    });
+    fireEvent.click(screen.getByTestId("undo"));
+    expect(screen.getByTestId("layer-thickness-left-0")).toHaveValue("20");
+    expect(screen.getByTestId("redo")).toBeEnabled();
+
+    // 在另一列键入：重做分支被截断
+    fireEvent.change(screen.getByTestId("layer-thickness-right-0"), {
+      target: { value: "77" },
+    });
+    expect(screen.getByTestId("redo")).toBeDisabled();
+    expect(screen.getByTestId("undo")).toBeEnabled();
+
+    // 撤销新编辑后回到的是回退点（示例），被截断的旧分支不会复活
+    fireEvent.click(screen.getByTestId("undo"));
+    expect(screen.getByTestId("layer-thickness-right-0")).toHaveValue("100");
+    expect(screen.getByTestId("layer-thickness-left-0")).toHaveValue("20");
+    expect(screen.getByTestId("redo")).toBeEnabled();
+  });
+
+  it("撤销与重做使既有结果失效，重新计算仍得到原有证据（指纹一致）", async () => {
+    render(<App />);
+    fireEvent.click(screen.getByRole("button", { name: "载入示例" }));
+    fireEvent.click(screen.getByRole("button", { name: "开始对应" }));
+    await waitFor(() => expect(screen.getByTestId("diagram")).toBeInTheDocument());
+    const fingerprint = screen.getByTestId("fingerprint").textContent;
+
+    fireEvent.change(screen.getByTestId("layer-thickness-left-0"), {
+      target: { value: "55" },
+    });
+    expect(screen.queryByTestId("totals")).not.toBeInTheDocument();
+
+    // 撤销回示例输入：证据仍需重新提交才出现
+    fireEvent.click(screen.getByTestId("undo"));
+    expect(screen.getByTestId("layer-thickness-left-0")).toHaveValue("20");
+    expect(screen.queryByTestId("totals")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "开始对应" }));
+    await waitFor(() => expect(screen.getByTestId("diagram")).toBeInTheDocument());
+    expect(screen.getByTestId("fingerprint")).toHaveTextContent(fingerprint!);
+  });
+
+  it("回退期间迟到的响应不再显示，重做后重新计算仍得到原有证据", async () => {
+    render(<App />);
+    fireEvent.click(screen.getByRole("button", { name: "载入示例" }));
+    fireEvent.click(screen.getByRole("button", { name: "开始对应" }));
+    await waitFor(() => expect(screen.getByTestId("diagram")).toBeInTheDocument());
+    const fingerprint = screen.getByTestId("fingerprint").textContent;
+
+    // 第二次提交挂起；在途期间撤销到初始数据
+    let resolveRequest: (value: typeof EXAMPLE_RESPONSE) => void = () => {};
+    mockedCorrelate.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveRequest = resolve;
+        }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "开始对应" }));
+    fireEvent.click(screen.getByTestId("undo"));
+    expect(screen.getByTestId("editor-left")).toHaveTextContent("3 层");
+    expect(screen.queryByTestId("totals")).not.toBeInTheDocument();
+
+    // 迟到响应对应已被撤销的输入，不得显示
+    resolveRequest(EXAMPLE_RESPONSE);
+    await waitFor(() => expect(screen.getByRole("button", { name: "开始对应" })).toBeEnabled());
+    expect(screen.queryByTestId("totals")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("diagram")).not.toBeInTheDocument();
+
+    // 重做回示例输入后重新计算，证据指纹与原来一致
+    fireEvent.click(screen.getByTestId("redo"));
+    expect(screen.getByTestId("editor-left")).toHaveTextContent("7 层");
+    fireEvent.click(screen.getByRole("button", { name: "开始对应" }));
+    await waitFor(() => expect(screen.getByTestId("diagram")).toBeInTheDocument());
+    expect(screen.getByTestId("fingerprint")).toHaveTextContent(fingerprint!);
+  });
+
+  it("撤销后焦点恢复到原操作控件的邻近位置", () => {
+    render(<App />);
+    fireEvent.click(screen.getByRole("button", { name: "载入示例" }));
+    fireEvent.click(screen.getByTestId("add-left"));
+    const added = screen.getByTestId("layer-thickness-left-7");
+    fireEvent.change(added, { target: { value: "15" } });
+
+    fireEvent.click(screen.getByTestId("undo"));
+    expect(document.activeElement).toBe(screen.getByTestId("layer-thickness-left-7"));
+
+    // 再撤销“添加层”：该输入框已不存在，焦点落到邻近的存活行
+    fireEvent.click(screen.getByTestId("undo"));
+    expect(document.activeElement).toBe(screen.getByTestId("layer-thickness-left-6"));
+  });
 });

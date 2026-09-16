@@ -156,3 +156,239 @@ test("列编辑：增删层并参与计算", async ({ page }) => {
   await expect(page.getByTestId("editor-left")).toContainText("4 层");
   await expect(page.getByTestId("layer-thickness-left-3")).toHaveValue("100");
 });
+
+test("统一撤销/重做：跨列增删与合并键入严格按实际发生顺序往返", async ({ page }) => {
+  await page.goto("/");
+  await page.getByRole("button", { name: "载入示例" }).click();
+  await expect(page.getByTestId("editor-left")).toContainText("7 层");
+
+  // 左孔添加层（结构操作，独立成项）
+  await page.getByTestId("add-left").click();
+  await expect(page.getByTestId("editor-left")).toContainText("8 层");
+  // 新层厚度连续键入合并为一项
+  const added = page.getByTestId("layer-thickness-left-7");
+  await added.fill("");
+  await added.type("7");
+  await added.type("7");
+  await expect(added).toHaveValue("77");
+  // 右孔删除一层（结构操作，独立成项）
+  await page.getByTestId("remove-right-6").click();
+  await expect(page.getByTestId("editor-right")).toContainText("6 层");
+
+  const undo = page.getByTestId("undo");
+  const redo = page.getByTestId("redo");
+  await expect(redo).toBeDisabled();
+
+  // 按发生顺序逐项撤销：删右孔层 → 合并键入 → 加左孔层 → 载入示例
+  await undo.click();
+  await expect(page.getByTestId("editor-right")).toContainText("7 层");
+  await undo.click();
+  await expect(page.getByTestId("layer-thickness-left-7")).toHaveValue("100");
+  await undo.click();
+  await expect(page.getByTestId("editor-left")).toContainText("7 层");
+  await undo.click();
+  await expect(page.getByTestId("editor-left")).toContainText("3 层");
+  await expect(page.getByTestId("editor-right")).toContainText("3 层");
+  await expect(undo).toBeDisabled();
+  await expect(redo).toBeEnabled();
+
+  // 按原顺序重做：连续键入仍是一项
+  await redo.click();
+  await expect(page.getByTestId("editor-left")).toContainText("7 层");
+  await redo.click();
+  await expect(page.getByTestId("editor-left")).toContainText("8 层");
+  await expect(page.getByTestId("layer-thickness-left-7")).toHaveValue("100");
+  await redo.click();
+  await expect(page.getByTestId("layer-thickness-left-7")).toHaveValue("77");
+  await redo.click();
+  await expect(page.getByTestId("editor-right")).toContainText("6 层");
+  await expect(redo).toBeDisabled();
+
+  // 往返后可继续提交计算
+  await page.getByRole("button", { name: "开始对应" }).click();
+  await expect(page.getByTestId("totals")).toBeVisible();
+});
+
+test("回退后的任何新编辑都会清空重做分支", async ({ page }) => {
+  await page.goto("/");
+  await page.getByRole("button", { name: "载入示例" }).click();
+  await page.getByTestId("layer-thickness-left-0").fill("55");
+  await page.getByTestId("undo").click();
+  await expect(page.getByTestId("layer-thickness-left-0")).toHaveValue("20");
+  await expect(page.getByTestId("redo")).toBeEnabled();
+
+  // 在另一列做新编辑：重做分支被截断
+  await page.getByTestId("layer-thickness-right-0").fill("77");
+  await expect(page.getByTestId("redo")).toBeDisabled();
+
+  // 撤销新编辑回到回退点，被截断的旧重做分支不会复活
+  await page.getByTestId("undo").click();
+  await expect(page.getByTestId("layer-thickness-right-0")).toHaveValue("100");
+  await expect(page.getByTestId("layer-thickness-left-0")).toHaveValue("20");
+  await expect(page.getByTestId("redo")).toBeEnabled();
+  await page.getByTestId("redo").click();
+  await expect(page.getByTestId("layer-thickness-right-0")).toHaveValue("77");
+});
+
+test("刷新恢复两列完整草稿与撤销栈", async ({ page }) => {
+  await page.goto("/");
+  await page.getByRole("button", { name: "载入示例" }).click();
+  await page.getByTestId("layer-thickness-left-0").fill("55");
+  await page.getByTestId("add-right").click();
+  await expect(page.getByTestId("editor-right")).toContainText("8 层");
+
+  await page.reload();
+
+  // 两列草稿完整恢复
+  await expect(page.getByTestId("editor-left")).toContainText("7 层");
+  await expect(page.getByTestId("editor-right")).toContainText("8 层");
+  await expect(page.getByTestId("layer-thickness-left-0")).toHaveValue("55");
+  await expect(page.getByTestId("layer-thickness-right-7")).toHaveValue("100");
+  // 正常恢复不展示说明条
+  await expect(page.getByTestId("history-note")).not.toBeAttached();
+
+  // 撤销栈也随检查点恢复：撤销“添加层”→ 撤销“键入”→ 撤销“载入示例”
+  await page.getByTestId("undo").click();
+  await expect(page.getByTestId("editor-right")).toContainText("7 层");
+  await page.getByTestId("undo").click();
+  await expect(page.getByTestId("layer-thickness-left-0")).toHaveValue("20");
+  await page.getByTestId("undo").click();
+  await expect(page.getByTestId("editor-left")).toContainText("3 层");
+});
+
+test("最新检查点尾项损坏时，刷新回到最近完整代次并仍可撤销重算", async ({ page }) => {
+  await page.goto("/");
+  await page.getByRole("button", { name: "载入示例" }).click();
+  await page.getByRole("button", { name: "开始对应" }).click();
+  await expect(page.getByTestId("totals")).toContainText("总代价 725");
+  const fingerprint = await page.getByTestId("fingerprint").textContent();
+
+  // 再制造两代编辑：键入（槽 b，第 2 代）→ 加层（槽 a，第 3 代，最新）
+  await page.getByTestId("layer-thickness-left-0").fill("55");
+  await page.getByTestId("add-left").click();
+  await expect(page.getByTestId("editor-left")).toContainText("8 层");
+
+  // 模拟最新一代写入中断：定位代次最新的槽并截断其尾项
+  // （开发态 StrictMode 会多写一代，因此不写死槽位，按代次现场判定）
+  const damaged = await page.evaluate(() => {
+    const read = (slot: string) => {
+      const raw = window.localStorage.getItem(`strata-correlation:cp:${slot}`);
+      if (!raw) return null;
+      try {
+        return { slot, generation: (JSON.parse(raw) as { g: number }).g, raw };
+      } catch {
+        return { slot, generation: -1, raw };
+      }
+    };
+    const slots = [read("a"), read("b")]
+      .filter((value): value is { slot: string; generation: number; raw: string } => value !== null)
+      .sort((x, y) => y.generation - x.generation);
+    const newest = slots[0];
+    if (!newest) return null;
+    window.localStorage.setItem(
+      `strata-correlation:cp:${newest.slot}`,
+      newest.raw.slice(0, Math.floor(newest.raw.length / 2)),
+    );
+    return newest.slot;
+  });
+  expect(damaged).not.toBeNull();
+
+  await page.reload();
+
+  // 回到第 2 代完整检查点：7 层、厚度 55；操作区说明忽略了损坏尾项
+  await expect(page.getByTestId("editor-left")).toContainText("7 层");
+  await expect(page.getByTestId("layer-thickness-left-0")).toHaveValue("55");
+  await expect(page.getByTestId("history-note")).toContainText("最近完整检查点");
+  await expect(page.getByTestId("undo")).toBeEnabled();
+
+  // 撤销到示例输入后重新计算，证据指纹与损坏前完全一致
+  await page.getByTestId("undo").click();
+  await expect(page.getByTestId("layer-thickness-left-0")).toHaveValue("20");
+  await page.getByTestId("undo").click();
+  await expect(page.getByTestId("editor-left")).toContainText("3 层");
+  await page.getByTestId("redo").click();
+  await expect(page.getByTestId("editor-left")).toContainText("7 层");
+  await page.getByRole("button", { name: "开始对应" }).click();
+  await expect(page.getByTestId("totals")).toContainText("总代价 725");
+  await expect(page.getByTestId("fingerprint")).toHaveText(fingerprint!);
+});
+
+test("回退期间迟到的响应不再显示，重做后重新计算仍得到原有证据", async ({ page }) => {
+  await page.goto("/");
+  await page.getByRole("button", { name: "载入示例" }).click();
+  await page.getByRole("button", { name: "开始对应" }).click();
+  await expect(page.getByTestId("totals")).toContainText("总代价 725");
+  const fingerprint = await page.getByTestId("fingerprint").textContent();
+
+  // 挂起下一次计算请求
+  let heldRoute: { continue: () => Promise<void> } | null = null;
+  await page.route("**/api/correlate", (route) => {
+    heldRoute = route;
+  });
+
+  await page.getByRole("button", { name: "开始对应" }).click();
+  // 在途期间撤销到初始数据：证据立即失效
+  await page.getByTestId("undo").click();
+  await expect(page.getByTestId("editor-left")).toContainText("3 层");
+  await expect(page.getByTestId("totals")).not.toBeAttached();
+
+  // 放行请求：迟到响应对应已撤销的输入，不得显示
+  await heldRoute!.continue();
+  await page.unroute("**/api/correlate");
+  await expect(page.getByTestId("totals")).not.toBeAttached();
+  await expect(page.getByTestId("diagram")).not.toBeAttached();
+
+  // 重做回示例输入后重新计算，仍得到原有证据
+  await page.getByTestId("redo").click();
+  await expect(page.getByTestId("editor-left")).toContainText("7 层");
+  await page.getByRole("button", { name: "开始对应" }).click();
+  await expect(page.getByTestId("totals")).toContainText("总代价 725");
+  await expect(page.getByTestId("fingerprint")).toHaveText(fingerprint!);
+});
+
+test("两个槽都不可用时保留当前初始数据、禁用恢复并在操作区说明原因", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.getByTestId("editor-left")).toContainText("3 层");
+
+  // 同步写坏两个槽后立刻刷新：初始化加载只见损坏检查点
+  await page.evaluate(() => {
+    window.localStorage.setItem("strata-correlation:cp:a", "{ 写入中断");
+    window.localStorage.setItem("strata-correlation:cp:b", '{"v":1,"g":2}');
+  });
+  await page.reload();
+
+  // 保留初始数据，撤销不可用，并逐槽说明原因
+  await expect(page.getByTestId("editor-left")).toContainText("3 层");
+  await expect(page.getByTestId("editor-right")).toContainText("3 层");
+  await expect(page.getByTestId("undo")).toBeDisabled();
+  await expect(page.getByTestId("redo")).toBeDisabled();
+  const note = page.getByTestId("history-note");
+  await expect(note).toContainText("未能恢复上次草稿");
+  await expect(note).toContainText("槽A");
+  await expect(note).toContainText("槽B");
+
+  // 仍然可以继续编辑与提交
+  await page.getByRole("button", { name: "开始对应" }).click();
+  await expect(page.getByTestId("totals")).toBeVisible();
+});
+
+test("关闭存储权限时降级为当前会话内撤销/重做", async ({ page, context }) => {
+  await context.addInitScript(() => {
+    Object.defineProperty(window, "localStorage", {
+      configurable: true,
+      get() {
+        throw new DOMException("Storage disabled", "SecurityError");
+      },
+    });
+  });
+  await page.goto("/");
+  await expect(page.getByTestId("history-note")).toContainText("当前会话内");
+
+  // 会话内撤销/重做照常工作
+  await page.getByRole("button", { name: "载入示例" }).click();
+  await page.getByTestId("layer-thickness-left-0").fill("55");
+  await page.getByTestId("undo").click();
+  await expect(page.getByTestId("layer-thickness-left-0")).toHaveValue("20");
+  await page.getByTestId("redo").click();
+  await expect(page.getByTestId("layer-thickness-left-0")).toHaveValue("55");
+});
